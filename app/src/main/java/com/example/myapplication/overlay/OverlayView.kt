@@ -1,10 +1,11 @@
-package com.example.myapplication
+package com.example.myapplication.overlay
 
 import android.content.Context
 import android.graphics.Canvas
 import android.graphics.Color
 import android.graphics.Paint
 import android.view.View
+import com.example.myapplication.detection.Detection
 
 class OverlayView(context: Context) : View(context) {
     private var detections: List<Detection> = emptyList()

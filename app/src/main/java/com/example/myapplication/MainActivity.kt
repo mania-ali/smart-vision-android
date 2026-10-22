@@ -3,34 +3,26 @@ package com.example.myapplication
 import android.Manifest
 import android.content.pm.PackageManager
 import android.graphics.Bitmap
-import android.graphics.Matrix
 import android.os.Bundle
-import android.speech.tts.TextToSpeech
 import android.widget.FrameLayout
 import android.widget.Toast
 import androidx.activity.ComponentActivity
 import androidx.activity.result.contract.ActivityResultContracts
-import androidx.camera.core.CameraSelector
-import androidx.camera.core.ImageAnalysis
-import androidx.camera.core.Preview
-import androidx.camera.lifecycle.ProcessCameraProvider
 import androidx.camera.view.PreviewView
 import androidx.core.content.ContextCompat
-import java.util.Locale
-import java.util.concurrent.Executors
+import com.example.myapplication.camera.CameraController
+import com.example.myapplication.detection.Detector
+import com.example.myapplication.overlay.OverlayView
 
 class MainActivity : ComponentActivity() {
     private lateinit var previewView: PreviewView
     private lateinit var overlay: OverlayView
     private lateinit var detector: Detector
-    private var tts: TextToSpeech? = null
-    private val cameraExecutor = Executors.newSingleThreadExecutor()
-    private var lastSpoken = ""
-    private var lastSpokenTime = 0L
+    private lateinit var camera: CameraController
 
     private val permissionLauncher =
         registerForActivityResult(ActivityResultContracts.RequestPermission()) { granted ->
-            if (granted) startCamera()
+            if (granted) camera.start()
             else Toast.makeText(this, "Camera permission is required", Toast.LENGTH_LONG).show()
         }
 
@@ -48,62 +40,28 @@ class MainActivity : ComponentActivity() {
         setContentView(root)
 
         detector = Detector(this)
-        tts = TextToSpeech(this) { status ->
-            if (status == TextToSpeech.SUCCESS) tts?.language = Locale.US
-        }
+        camera = CameraController(this, previewView) { bitmap -> processFrame(bitmap) }
 
         if (ContextCompat.checkSelfPermission(this, Manifest.permission.CAMERA)
-            == PackageManager.PERMISSION_GRANTED) startCamera()
+            == PackageManager.PERMISSION_GRANTED) camera.start()
         else permissionLauncher.launch(Manifest.permission.CAMERA)
     }
 
-    private fun startCamera() {
-        val providerFuture = ProcessCameraProvider.getInstance(this)
-        providerFuture.addListener({
-            val provider = providerFuture.get()
+    // The pipeline: every camera frame comes here.
+    private fun processFrame(bitmap: Bitmap) {
+        // 1. Object detection
+        val results = detector.detect(bitmap)
 
-            val preview = Preview.Builder().build().also {
-                it.setSurfaceProvider(previewView.surfaceProvider)
-            }
 
-            val analysis = ImageAnalysis.Builder()
-                .setBackpressureStrategy(ImageAnalysis.STRATEGY_KEEP_ONLY_LATEST)
-                .setOutputImageFormat(ImageAnalysis.OUTPUT_IMAGE_FORMAT_RGBA_8888)
-                .build()
 
-            analysis.setAnalyzer(cameraExecutor) { imageProxy ->
-                val rotation = imageProxy.imageInfo.rotationDegrees
-                var bitmap = imageProxy.toBitmap()
-                imageProxy.close()
-                if (rotation != 0) {
-                    val m = Matrix().apply { postRotate(rotation.toFloat()) }
-                    bitmap = Bitmap.createBitmap(bitmap, 0, 0, bitmap.width, bitmap.height, m, true)
-                }
-                val results = detector.detect(bitmap)
-                overlay.setResults(results, bitmap.width, bitmap.height)
-                announce(results)
-            }
+        // 3. Draw on screen
+        overlay.setResults(results, bitmap.width, bitmap.height)
 
-            provider.unbindAll()
-            provider.bindToLifecycle(this, CameraSelector.DEFAULT_BACK_CAMERA, preview, analysis)
-        }, ContextCompat.getMainExecutor(this))
-    }
 
-    private fun announce(results: List<Detection>) {
-        val top = results.maxByOrNull { it.score } ?: return
-        val now = System.currentTimeMillis()
-        if (top.label != lastSpoken || now - lastSpokenTime > 3000) {
-            if (now - lastSpokenTime > 1500) {
-                tts?.speak("${top.label} ahead", TextToSpeech.QUEUE_FLUSH, null, "det")
-                lastSpoken = top.label
-                lastSpokenTime = now
-            }
-        }
     }
 
     override fun onDestroy() {
         super.onDestroy()
-        cameraExecutor.shutdown()
-        tts?.shutdown()
+        camera.stop()
     }
 }

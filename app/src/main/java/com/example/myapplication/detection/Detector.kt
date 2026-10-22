@@ -1,4 +1,4 @@
-package com.example.myapplication
+package com.example.myapplication.detection
 
 import android.content.Context
 import android.graphics.Bitmap
@@ -10,13 +10,12 @@ import java.nio.ByteOrder
 import java.nio.MappedByteBuffer
 import java.nio.channels.FileChannel
 
-data class Detection(val box: RectF, val label: String, val score: Float)
-
 class Detector(context: Context) {
     private val interpreter: Interpreter
     private val labels: List<String>
     private val inputSize: Int
     private var channelsFirst = false
+
     init {
         val model = loadModel(context, "yolov8n.tflite")
         interpreter = Interpreter(model, Interpreter.Options().apply { setNumThreads(4) })
@@ -41,12 +40,10 @@ class Detector(context: Context) {
         val pixels = IntArray(inputSize * inputSize)
         resized.getPixels(pixels, 0, inputSize, 0, 0, inputSize, inputSize)
         if (channelsFirst) {
-            // [1, 3, H, W]: all red values, then all green, then all blue
             for (p in pixels) input.putFloat(((p shr 16) and 0xFF) / 255f)
             for (p in pixels) input.putFloat(((p shr 8) and 0xFF) / 255f)
             for (p in pixels) input.putFloat((p and 0xFF) / 255f)
         } else {
-            // [1, H, W, 3]: red, green, blue for each pixel
             for (p in pixels) {
                 input.putFloat(((p shr 16) and 0xFF) / 255f)
                 input.putFloat(((p shr 8) and 0xFF) / 255f)
