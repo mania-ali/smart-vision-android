@@ -9,6 +9,9 @@ import java.nio.ByteBuffer
 import java.nio.ByteOrder
 import java.nio.MappedByteBuffer
 import java.nio.channels.FileChannel
+import android.graphics.Canvas
+import android.graphics.Color
+import android.graphics.Paint
 
 class Detector(context: Context) {
     private val interpreter: Interpreter
@@ -18,7 +21,7 @@ class Detector(context: Context) {
 
     init {
         val model = loadModel(context, "yolov8n.tflite")
-        interpreter = Interpreter(model, Interpreter.Options().apply { setNumThreads(4) })
+        interpreter = Interpreter(model, Interpreter.Options().apply { setNumThreads(6) })
         labels = context.assets.open("labels.txt").bufferedReader()
             .readLines().map { it.trim() }.filter { it.isNotEmpty() }
         val inShape = interpreter.getInputTensor(0).shape()
@@ -34,7 +37,18 @@ class Detector(context: Context) {
     }
 
     fun detect(bitmap: Bitmap, threshold: Float = 0.45f): List<Detection> {
-        val resized = Bitmap.createScaledBitmap(bitmap, inputSize, inputSize, true)
+        // Letterbox: keep the shape, pad the rest with grey (like YOLO training)
+        val scale = minOf(inputSize.toFloat() / bitmap.width, inputSize.toFloat() / bitmap.height)
+        val newW = (bitmap.width * scale).toInt()
+        val newH = (bitmap.height * scale).toInt()
+        val padX = (inputSize - newW) / 2f
+        val padY = (inputSize - newH) / 2f
+
+        val resized = Bitmap.createBitmap(inputSize, inputSize, Bitmap.Config.ARGB_8888)
+        Canvas(resized).apply {
+            drawColor(Color.rgb(114, 114, 114))
+            drawBitmap(Bitmap.createScaledBitmap(bitmap, newW, newH, true), padX, padY, Paint(Paint.FILTER_BITMAP_FLAG))
+        }
         val input = ByteBuffer.allocateDirect(4 * inputSize * inputSize * 3)
             .order(ByteOrder.nativeOrder())
         val pixels = IntArray(inputSize * inputSize)
@@ -72,10 +86,16 @@ class Detector(context: Context) {
             if (best < threshold || bestClass < 0) continue
 
             var cx = v(0, i); var cy = v(1, i); var w = v(2, i); var h = v(3, i)
-            if (cx > 1.5f) {
-                cx /= inputSize; cy /= inputSize; w /= inputSize; h /= inputSize
+            // Convert to model pixels if the model gave 0..1 values
+            if (cx <= 1.5f) {
+                cx *= inputSize; cy *= inputSize; w *= inputSize; h *= inputSize
             }
-            val box = RectF(cx - w / 2, cy - h / 2, cx + w / 2, cy + h / 2)
+// Remove the padding and scale back to the original image, as 0..1 values
+            val left = ((cx - w / 2) - padX) / newW
+            val top = ((cy - h / 2) - padY) / newH
+            val right = ((cx + w / 2) - padX) / newW
+            val bottom = ((cy + h / 2) - padY) / newH
+            val box = RectF(left.coerceIn(0f, 1f), top.coerceIn(0f, 1f), right.coerceIn(0f, 1f), bottom.coerceIn(0f, 1f))
             val label = labels.getOrElse(bestClass) { "object" }
             results.add(Detection(box, label, best))
         }

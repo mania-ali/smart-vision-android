@@ -13,12 +13,14 @@ import androidx.core.content.ContextCompat
 import com.example.myapplication.camera.CameraController
 import com.example.myapplication.detection.Detector
 import com.example.myapplication.overlay.OverlayView
-
+import com.example.myapplication.audio.AudioFeedback
+import android.util.Log
 class MainActivity : ComponentActivity() {
     private lateinit var previewView: PreviewView
     private lateinit var overlay: OverlayView
     private lateinit var detector: Detector
     private lateinit var camera: CameraController
+    private lateinit var audio: AudioFeedback
 
     private val permissionLauncher =
         registerForActivityResult(ActivityResultContracts.RequestPermission()) { granted ->
@@ -40,6 +42,7 @@ class MainActivity : ComponentActivity() {
         setContentView(root)
 
         detector = Detector(this)
+        audio = AudioFeedback(this)
         camera = CameraController(this, previewView) { bitmap -> processFrame(bitmap) }
 
         if (ContextCompat.checkSelfPermission(this, Manifest.permission.CAMERA)
@@ -57,11 +60,13 @@ class MainActivity : ComponentActivity() {
         // 3. Draw on screen
         overlay.setResults(results, bitmap.width, bitmap.height)
 
-
+        // 4. Audio feedback
+        audio.update(results)
     }
 
     override fun onDestroy() {
         super.onDestroy()
         camera.stop()
+        audio.shutdown()
     }
 }
