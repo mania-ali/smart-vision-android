@@ -3,12 +3,16 @@ package com.example.myapplication.audio
 import android.content.Context
 import android.os.Bundle
 import android.speech.tts.TextToSpeech
+import android.speech.tts.UtteranceProgressListener
 import com.example.myapplication.detection.Detection
 import java.util.Locale
 
 class AudioFeedback(context: Context) {
 
     private var ready = false
+
+    // true from the moment we start a sentence until Android says it finished
+    @Volatile private var speaking = false
 
     private val tts: TextToSpeech = TextToSpeech(context) { status ->
         if (status == TextToSpeech.SUCCESS) {
@@ -18,22 +22,30 @@ class AudioFeedback(context: Context) {
         }
     }
 
-    private val lastSeen = mutableMapOf<String, Long>()       // label -> last time in view
-    private val lastSpoken = mutableMapOf<String, Long>()     // label -> last time said
-    private val latest = mutableMapOf<String, Detection>()    // label -> its latest box
-    private val waiting = LinkedHashSet<String>()             // new labels not yet spoken
+    init {
+        // Android tells us when each sentence starts and ends
+        tts.setOnUtteranceProgressListener(object : UtteranceProgressListener() {
+            override fun onStart(utteranceId: String?) { speaking = true }
+            override fun onDone(utteranceId: String?) { speaking = false }
+            @Deprecated("Deprecated in Java")
+            override fun onError(utteranceId: String?) { speaking = false }
+        })
+    }
 
-    private val goneTime = 3_000L
-    private val reminderTime = 15_000L
-    private val minGapBetweenWords = 600L
+    private val lastSeen = mutableMapOf<String, Long>()     // label -> last time in view
+    private val lastSpoken = mutableMapOf<String, Long>()   // label -> last time said
+    private val latest = mutableMapOf<String, Detection>()  // label -> its newest box
+    private val waiting = LinkedHashSet<String>()           // queue of labels to say
 
+    private val goneTime = 3_000L       // out of view this long = "new" again
+    private val reminderTime = 15_000L  // reminder if it stays in view
+    private val maxWaiting = 2          // keep the queue short so we never fall behind
+
+    // Stability check: a label must appear in 2 of the last 3 frames
     private val history = ArrayDeque<Set<String>>()
     private val historySize = 3
     private val minFrames = 2
 
-    private var lastSpeakTime = 0L
-
-    // Where the object is, from its box centre (0 = left edge, 1 = right edge)
     private enum class Side(val pan: Float) { LEFT(-1f), CENTRE(0f), RIGHT(1f) }
 
     private fun sideOf(d: Detection): Side {
@@ -55,44 +67,47 @@ class AudioFeedback(context: Context) {
         if (!ready) return
         val now = System.currentTimeMillis()
 
+        // Remember this frame's labels (last 3 frames only)
         history.addLast(results.map { it.label }.toSet())
         if (history.size > historySize) history.removeFirst()
 
+        // Keep only stable detections, most confident first
         val stable = results
             .filter { d -> history.count { d.label in it } >= minFrames }
             .sortedByDescending { it.score }
 
+        // Queue labels that are new or need a reminder; keep the newest box per label
+        val updatedThisFrame = mutableSetOf<String>()
         for (d in stable) {
             val seen = lastSeen[d.label]
             val spoken = lastSpoken[d.label]
             val isNew = seen == null || now - seen > goneTime
             val needsReminder = spoken != null && now - spoken > reminderTime
-            if (isNew || needsReminder) waiting.add(d.label)
+            if ((isNew || needsReminder) && d.label !in waiting) waiting.add(d.label)
+
             lastSeen[d.label] = now
-            // Keep the most confident box per label, so the side is up to date
-            val current = latest[d.label]
-            if (current == null || current !in stable || d.score >= current.score) {
-                latest[d.label] = d
-            }
+            if (updatedThisFrame.add(d.label)) latest[d.label] = d  // first = most confident
         }
 
+        // Drop queued labels that left the view
         waiting.removeAll { label -> now - (lastSeen[label] ?: 0L) > goneTime }
 
-        val next = waiting.firstOrNull() ?: return
-        if (tts.isSpeaking && now - lastSpeakTime < minGapBetweenWords) return
+        // Keep the queue short: drop the oldest if too many are waiting
+        while (waiting.size > maxWaiting) waiting.remove(waiting.first())
 
+        // Never cut a sentence off: wait until the current one finishes
+        if (speaking) return
+
+        val next = waiting.firstOrNull() ?: return
         val det = latest[next] ?: return
         val side = sideOf(det)
 
-        // Pan the voice to the object's side (-1 = left ear, 0 = both, 1 = right ear)
-        val params = Bundle().apply {
-            putFloat(TextToSpeech.Engine.KEY_PARAM_PAN, side.pan)
-        }
+        val params = Bundle().apply { putFloat(TextToSpeech.Engine.KEY_PARAM_PAN, side.pan) }
 
-        tts.speak(sentenceFor(next, side), TextToSpeech.QUEUE_FLUSH, params, "sva_announce")
+        speaking = true   // set at once, so the next frame doesn't start another sentence
+        tts.speak(sentenceFor(next, side), TextToSpeech.QUEUE_ADD, params, "sva_$now")
         waiting.remove(next)
         lastSpoken[next] = now
-        lastSpeakTime = now
     }
 
     fun shutdown() {
