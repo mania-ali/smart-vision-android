@@ -14,6 +14,7 @@ import com.example.myapplication.camera.CameraController
 import com.example.myapplication.detection.Detector
 import com.example.myapplication.overlay.OverlayView
 import com.example.myapplication.audio.AudioFeedback
+import com.example.myapplication.memory.SpatialMemory   // ADDED 
 import android.util.Log
 class MainActivity : ComponentActivity() {
     private lateinit var previewView: PreviewView
@@ -21,6 +22,7 @@ class MainActivity : ComponentActivity() {
     private lateinit var detector: Detector
     private lateinit var camera: CameraController
     private lateinit var audio: AudioFeedback
+    private lateinit var memory: SpatialMemory          // ADDED 
 
     private val permissionLauncher =
         registerForActivityResult(ActivityResultContracts.RequestPermission()) { granted ->
@@ -43,6 +45,8 @@ class MainActivity : ComponentActivity() {
 
         detector = Detector(this)
         audio = AudioFeedback(this)
+        memory = SpatialMemory(this)                        // ADDED 
+        memory.attachDebugLongPress(overlay)                // ADDED - temporary, for TC-M04
         camera = CameraController(this, previewView) { bitmap -> processFrame(bitmap) }
 
         if (ContextCompat.checkSelfPermission(this, Manifest.permission.CAMERA)
@@ -55,7 +59,8 @@ class MainActivity : ComponentActivity() {
         // 1. Object detection
         val results = detector.detect(bitmap)
 
-
+        // 2. Remember what was seen                        // ADDED 
+        memory.save(results)                                // ADDED
 
         // 3. Draw on screen
         overlay.setResults(results, bitmap.width, bitmap.height)
@@ -68,5 +73,6 @@ class MainActivity : ComponentActivity() {
         super.onDestroy()
         camera.stop()
         audio.shutdown()
+        memory.close()                                      // ADDED 
     }
 }
