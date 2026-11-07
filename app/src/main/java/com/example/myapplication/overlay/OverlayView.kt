@@ -20,9 +20,24 @@ class OverlayView(context: Context) : View(context) {
     }
     private val bgPaint = Paint().apply { color = Color.argb(160, 0, 150, 0) }
 
+    // Speed stats shown in the top-left corner
+    private var fps = 0.0
+    private var inferenceMs = 0.0
+    private val statsPaint = Paint().apply {
+        color = Color.YELLOW; textSize = 40f; isFakeBoldText = true
+    }
+    private val statsBgPaint = Paint().apply { color = Color.argb(170, 0, 0, 0) }
+
     fun setResults(dets: List<Detection>, imageWidth: Int, imageHeight: Int) {
         detections = dets; imgW = imageWidth; imgH = imageHeight
         postInvalidate()
+    }
+
+    // Called once a second from MainActivity with the latest numbers
+    fun setStats(fps: Double, inferenceMs: Double) {
+        this.fps = fps
+        this.inferenceMs = inferenceMs
+        postInvalidate()   // safe to call from the background thread
     }
 
     override fun onDraw(canvas: Canvas) {
@@ -41,5 +56,11 @@ class OverlayView(context: Context) : View(context) {
             canvas.drawRect(l, t - 50f, l + textPaint.measureText(text) + 16f, t, bgPaint)
             canvas.drawText(text, l + 8f, t - 12f, textPaint)
         }
+
+        // Stats drawn last, so they stay on top of the boxes
+        val stats = "FPS: %.1f   Inference: %.0f ms".format(fps, inferenceMs)
+        val textWidth = statsPaint.measureText(stats)
+        canvas.drawRect(16f, 16f, 16f + textWidth + 32f, 86f, statsBgPaint)
+        canvas.drawText(stats, 32f, 66f, statsPaint)
     }
 }
