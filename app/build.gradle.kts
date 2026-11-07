@@ -61,4 +61,6 @@ dependencies {
     implementation("androidx.camera:camera-view:1.3.4")
 // TensorFlow Lite
     implementation("com.google.ai.edge.litert:litert:1.0.1")
+    // SSH client, used to start the camera stream on the Raspberry Pi
+    implementation("com.github.mwiede:jsch:2.28.8")
 }

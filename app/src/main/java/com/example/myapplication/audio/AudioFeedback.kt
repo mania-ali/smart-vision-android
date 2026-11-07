@@ -9,7 +9,8 @@ import java.util.Locale
 
 class AudioFeedback(context: Context) {
 
-    private var ready = false
+    @Volatile private var ready = false
+    @Volatile private var pendingAnnouncement: String? = null
 
     // true from the moment we start a sentence until Android says it finished
     @Volatile private var speaking = false
@@ -19,6 +20,8 @@ class AudioFeedback(context: Context) {
             val result = tts.setLanguage(Locale.US)
             ready = result != TextToSpeech.LANG_MISSING_DATA &&
                     result != TextToSpeech.LANG_NOT_SUPPORTED
+            if (ready) pendingAnnouncement?.let { announce(it) }
+            pendingAnnouncement = null
         }
     }
 
@@ -108,6 +111,19 @@ class AudioFeedback(context: Context) {
         tts.speak(sentenceFor(next, side), TextToSpeech.QUEUE_ADD, params, "sva_$now")
         waiting.remove(next)
         lastSpoken[next] = now
+    }
+
+    /**
+     * Speaks a status message (e.g. "Pi camera connected") centred in both ears. Like object
+     * hints it never cuts a sentence off: it waits for the current one, and hints wait for it.
+     */
+    fun announce(text: String) {
+        if (!ready) {
+            pendingAnnouncement = text   // TTS still starting: say it once ready
+            return
+        }
+        speaking = true   // object hints in update() wait until this has been said
+        tts.speak(text, TextToSpeech.QUEUE_ADD, null, "sva_status_${System.currentTimeMillis()}")
     }
 
     fun shutdown() {

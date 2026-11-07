@@ -11,18 +11,23 @@ import androidx.core.content.ContextCompat
 import androidx.lifecycle.LifecycleOwner
 import java.util.concurrent.Executors
 
+/** The phone's back camera. Can be stopped and started again when switching to/from the Pi. */
 class CameraController(
     private val owner: LifecycleOwner,
     private val previewView: PreviewView,
     private val onFrame: (Bitmap) -> Unit
-) {
+) : FrameSource {
     private val cameraExecutor = Executors.newSingleThreadExecutor()
+    private var provider: ProcessCameraProvider? = null
+    @Volatile private var running = false
 
-    fun start() {
+    override fun start() {
+        running = true
         val context = previewView.context
         val providerFuture = ProcessCameraProvider.getInstance(context)
         providerFuture.addListener({
-            val provider = providerFuture.get()
+            if (!running) return@addListener   // stopped before the camera was ready
+            val provider = providerFuture.get().also { this.provider = it }
 
             val preview = Preview.Builder().build().also {
                 it.setSurfaceProvider(previewView.surfaceProvider)
@@ -41,7 +46,7 @@ class CameraController(
                     val m = Matrix().apply { postRotate(rotation.toFloat()) }
                     bitmap = Bitmap.createBitmap(bitmap, 0, 0, bitmap.width, bitmap.height, m, true)
                 }
-                onFrame(bitmap)
+                if (running) onFrame(bitmap)
             }
 
             provider.unbindAll()
@@ -49,7 +54,15 @@ class CameraController(
         }, ContextCompat.getMainExecutor(context))
     }
 
-    fun stop() {
+    /** Releases the camera (main thread). [start] can be called again later. */
+    override fun stop() {
+        running = false
+        provider?.unbindAll()
+    }
+
+    /** Final cleanup when the activity is destroyed. */
+    fun shutdown() {
+        stop()
         cameraExecutor.shutdown()
     }
 }
