@@ -6,7 +6,7 @@ The app uses the Pi's camera like this:
 2. The app finds the Pi on the hotspot. It tries the address that worked last time, then `PiConfig.FIXED_HOST`, then every address on the hotspot that answers on the SSH port (about 1 s).
 3. It logs in over SSH and runs `rpicam-vid`, which serves an MJPEG stream on TCP port 8888.
 4. It reads the stream and runs detection only on the newest frame, dropping older ones, so delay never builds up.
-5. When the app stops or switches to the phone camera, the SSH session closes and `rpicam-vid` stops with it.
+5. When the app closes, the SSH session closes and `rpicam-vid` stops with it.
 
 **Why MJPEG over plain TCP:** it has the lowest delay of the usual options. Each frame is a complete JPEG, so the phone can decode any frame on its own. Frames never wait in a video decoder's buffer, and frames are skipped freely when detection is slower than the camera. H.264, RTSP and WebRTC all add decoder or jitter buffering, which costs roughly 100–500 ms. The cost is bandwidth: about 1–1.5 MB/s at 640×480 / 30 fps, which a hotspot handles easily.
 
@@ -96,7 +96,7 @@ Edit `app/src/main/java/com/example/myapplication/pi/PiConfig.kt`:
 | `JPEG_QUALITY` | Lower it (e.g. 50) if the picture lags on weak Wi-Fi |
 | `ROTATE_180` | Set `true` if the camera is mounted upside down |
 
-The app opens with the phone camera and looks for the Pi at the same time. It switches to the Pi once video arrives and says *"Pi camera connected"*. If the Pi isn't found it says *"Pi camera not found. Using phone camera."* The small **Pi cam / Phone cam** button at the top right switches cameras at any time. If the Pi stream drops, the app says *"Pi camera disconnected. Reconnecting."* and keeps retrying.
+When the app opens it says *"Looking for Pi camera"* and keeps searching until the Pi is found. The status line at the top shows each step. Once video arrives it says *"Pi camera connected"*. If the Pi can't be reached it says *"Can't reach the Pi camera. Still trying."* once and keeps looking. If the Pi stream drops, the app says *"Pi camera disconnected. Reconnecting."* and keeps retrying.
 
 On Android 17+ the app asks for the **Nearby devices** permission. It is needed to connect to the Pi over the hotspot.
 

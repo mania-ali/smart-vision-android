@@ -5,7 +5,6 @@ import android.graphics.Bitmap
 import android.graphics.BitmapFactory
 import android.os.SystemClock
 import android.util.Log
-import com.example.myapplication.camera.FrameSource
 import com.jcraft.jsch.ChannelExec
 import com.jcraft.jsch.JSch
 import com.jcraft.jsch.JSchException
@@ -40,16 +39,16 @@ class PiCameraSource(
     context: Context,
     private val onFrame: (Bitmap) -> Unit,
     private val onStatus: (PiStatus) -> Unit
-) : FrameSource {
+) {
     private val discovery = PiDiscovery(context.applicationContext)
     private var run: StreamRun? = null
     @Volatile private var hotspotSaved = false
 
-    override fun start() {
+    fun start() {
         if (run == null) run = StreamRun().also { it.start() }
     }
 
-    override fun stop() {
+    fun stop() {
         run?.stop()
         run = null
     }
